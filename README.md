@@ -1,44 +1,147 @@
 # mboxer
 
-`mboxer` is a local-first Gmail MBOX archive processor for turning exported email archives into useful knowledge sources.
+Create **NotebookLM-ready Markdown source packs** from **Gmail MBOX exports**, with local SQLite, JSONL, and CSV outputs for search, RAG, archive review, and LLM workflows.
 
-It is designed for people who want to take a Gmail export, usually from Google Takeout / Google Data Request, and organize it into formats that can be searched, reviewed, classified, summarized, and reused with modern LLM workflows.
-
-The core idea is simple:
+`mboxer` is a local-first email archive processor designed around a common problem:
 
 ```text
-Gmail export
+You can export Gmail as an MBOX file,
+but a raw MBOX archive is not useful for NotebookLM, RAG, review, or analysis.
+```
+
+`mboxer` turns that raw archive into organized, structured, reusable knowledge assets.
+
+```text
+Gmail / Google Takeout
   → MBOX file
   → local SQLite index
-  → organized Markdown / JSONL / CSV exports
-  → NotebookLM, RAG, analysis, search, review, and future tools
+  → organized Markdown source packs
+  → NotebookLM, RAG, search, review, JSONL, CSV, and future tools
 ```
 
 ## Why this exists
 
-Email archives often contain years of valuable personal, professional, legal, financial, operational, project, and organizational history.
+Gmail archives often contain years of valuable personal, professional, legal, financial, operational, project, and organizational history.
 
-But a raw `.mbox` file is not very useful by itself.
+Google Takeout makes it possible to export that history as an `.mbox` file, but the exported file is not immediately useful for modern AI workflows.
 
-`mboxer` helps convert that archive into structured, local-first knowledge assets:
+NotebookLM works best with readable, focused, well-organized source documents.
 
-- Markdown source packs for NotebookLM
-- JSONL files for RAG pipelines and LLM workflows
-- CSV exports for spreadsheets, review, filtering, and auditing
-- SQLite indexes for durable local querying and future application features
-- attachment metadata for later extraction, review, and security handling
-- category-organized filesystem exports for human-readable knowledge management
+RAG systems work best with structured, chunkable records.
 
-The goal is not just to parse email.
+Spreadsheets work best with clean rows and metadata.
 
-The goal is to make exported Gmail archives useful.
+Local review works best when everything is inspectable before anything is uploaded.
+
+`mboxer` bridges that gap.
+
+## Primary use case: Gmail MBOX to NotebookLM
+
+The main selling point of `mboxer` is converting Gmail MBOX exports into clean, category-organized Markdown files that can be used as NotebookLM sources.
+
+Instead of uploading one giant raw archive, `mboxer` is designed to create structured source packs like:
+
+```text
+exports/notebooklm/
+  finance/
+    invoices/
+      2024/
+        finance-invoices-2024-001.md
+  legal/
+    contracts/
+      2023-2024/
+        legal-contracts-2023-2024-001.md
+  projects/
+    product-launch/
+      2026/
+        projects-product-launch-2026-001.md
+  operations/
+    vendor-correspondence/
+      2025/
+        operations-vendor-correspondence-2025-001.md
+```
+
+The goal is to make exported Gmail content easier to:
+
+- upload into NotebookLM
+- organize by topic or category
+- review before upload
+- split into useful source packs
+- preserve context from email threads
+- exclude sensitive or irrelevant material
+- reuse later for RAG, search, or analysis
+
+## What `mboxer` produces
+
+`mboxer` is designed to turn Gmail MBOX archives into multiple useful formats.
+
+### NotebookLM Markdown source packs
+
+Markdown is the primary output format.
+
+Markdown exports should be readable, organized, and useful as NotebookLM source material.
+
+Each exported file can preserve useful email context such as:
+
+- subject
+- sender
+- recipients
+- date
+- thread hints
+- category
+- source account
+- cleaned body text
+- attachment references when available
+
+### SQLite database
+
+SQLite is the durable local project index.
+
+It allows `mboxer` to support features beyond one-time conversion, including:
+
+- resumable ingest
+- deduplication
+- multi-account separation
+- classification state
+- category review
+- export tracking
+- attachment tracking
+- security review
+- future search tools
+- future local web UI
+- future incremental workflows
+
+### JSONL exports
+
+JSONL is intended for RAG pipelines, embeddings, local LLM tools, and structured downstream processing.
+
+Each line can represent a message, thread, chunk, or export unit depending on the selected export mode.
+
+### CSV exports
+
+CSV is intended for spreadsheet review, filtering, auditing, lightweight analysis, and manual cleanup.
+
+Useful CSV columns may include:
+
+- message id
+- account label
+- source name
+- subject
+- sender
+- recipients
+- date
+- category
+- classification confidence
+- attachment count
+- security flags
+- export status
 
 ## What you can use it for
 
 `mboxer` is intended for workflows like:
 
-- turning Gmail archives into NotebookLM source packs
-- preparing email history for local LLM analysis
+- creating NotebookLM-ready source packs from Gmail exports
+- preparing Gmail history for local LLM analysis
 - organizing years of email by topic, project, sender, thread, or category
 - creating searchable Markdown archives
 - exporting structured JSONL for RAG systems
@@ -107,6 +210,7 @@ The typical flow is:
 3. Extract the downloaded archive locally.
 4. Locate the `.mbox` file.
 5. Ingest the `.mbox` file with `mboxer`.
+6. Export organized Markdown files for NotebookLM.
 
 Example:
 
@@ -176,28 +280,6 @@ The goal is to allow multiple archives to live in the same local project without
 
 NotebookLM exports should be Markdown-first and organized by category directories.
 
-Example:
-
-```text
-exports/notebooklm/
-  finance/
-    invoices/
-      2024/
-        finance-invoices-2024-001.md
-  legal/
-    contracts/
-      2023-2024/
-        legal-contracts-2023-2024-001.md
-  projects/
-    product-launch/
-      2026/
-        projects-product-launch-2026-001.md
-  operations/
-    vendor-correspondence/
-      2025/
-        operations-vendor-correspondence-2025-001.md
-```
-
 Filenames should remain meaningful even if the folder hierarchy is flattened during upload.
 
 A good exported source file should be understandable on its own:
@@ -216,66 +298,6 @@ operations-vendor-correspondence-2025-001.md
 research-literature-review-2024-001.md
 support-customer-requests-2025-001.md
 ```
-
-## Export formats
-
-### Markdown
-
-Markdown is the primary format for NotebookLM and human-readable archives.
-
-Markdown exports should preserve useful message context, including:
-
-- subject
-- sender
-- recipients
-- date
-- thread hints
-- category
-- source account
-- cleaned body text
-- attachment references when available
-
-### JSONL
-
-JSONL is intended for RAG pipelines, embeddings, local LLM tooling, and structured downstream processing.
-
-Each line should represent a message, thread, chunk, or export unit depending on the selected export mode.
-
-### CSV
-
-CSV is intended for spreadsheet review, filtering, auditing, lightweight analysis, and manual cleanup.
-
-Useful CSV columns may include:
-
-- message id
-- account label
-- source name
-- subject
-- sender
-- recipients
-- date
-- category
-- classification confidence
-- attachment count
-- security flags
-- export status
-
-### SQLite
-
-SQLite is the durable local project database.
-
-It allows `mboxer` to support features beyond one-time conversion, including:
-
-- resumable ingest
-- deduplication
-- classification state
-- category review
-- export tracking
-- attachment tracking
-- security review
-- future search tools
-- future local web UI
-- future incremental workflows
 
 ## Export profiles
 
@@ -346,12 +368,13 @@ LLM-based classification should be optional, configurable, and local-first by de
 
 `mboxer` should be:
 
+- NotebookLM-friendly
+- Gmail MBOX-focused
 - local-first
 - privacy-conscious
 - resumable
 - inspectable
 - useful without a cloud service
-- useful with NotebookLM
 - useful with local LLMs
 - useful with future RAG systems
 - safe for sensitive archives
@@ -377,7 +400,7 @@ Near-term implementation priorities:
 2. Preserve account/source separation.
 3. Add resumable ingest checkpoints.
 4. Normalize message metadata and body text.
-5. Add Markdown export.
+5. Add NotebookLM Markdown export.
 6. Add JSONL export.
 7. Add CSV export.
 8. Add deterministic classification rules.
