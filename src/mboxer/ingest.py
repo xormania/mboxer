@@ -116,6 +116,37 @@ def _upsert_thread(
         )
 
 
+def _delete_message_dependents(conn: sqlite3.Connection, msg_db_id: int) -> None:
+    """Delete all dependent rows for a message and the message itself.
+
+    Thread-level classifications (target_type='thread') are left intact;
+    re-running classify will refresh them.
+    """
+    thread_info = conn.execute(
+        "SELECT thread_key, account_id, source_id FROM messages WHERE id = ?",
+        (msg_db_id,),
+    ).fetchone()
+
+    conn.execute("DELETE FROM export_items WHERE message_db_id = ?", (msg_db_id,))
+    conn.execute("DELETE FROM security_findings WHERE message_db_id = ?", (msg_db_id,))
+    conn.execute(
+        "DELETE FROM classifications WHERE message_db_id = ? AND target_type = 'message'",
+        (msg_db_id,),
+    )
+    conn.execute("DELETE FROM message_labels WHERE message_db_id = ?", (msg_db_id,))
+    conn.execute("DELETE FROM attachments WHERE message_db_id = ?", (msg_db_id,))
+    conn.execute("DELETE FROM messages WHERE id = ?", (msg_db_id,))
+
+    if thread_info:
+        thread_key, account_id, source_id = thread_info
+        if thread_key:
+            conn.execute(
+                "UPDATE threads SET message_count = MAX(0, message_count - 1) "
+                "WHERE account_id = ? AND thread_key = ? AND source_id = ?",
+                (account_id, thread_key, source_id),
+            )
+
+
 def _store_labels(
     conn: sqlite3.Connection,
     account_id: int,
@@ -187,6 +218,11 @@ def ingest_mbox(
         account_id: int = account["id"]  # type: ignore[index]
         source_id = _get_or_create_source(conn, mbox_path, source_name, account_id)
 
+        if force:
+            print(
+                f"Warning: --force enabled; existing messages from this account/source may be replaced."
+            )
+
         resume_run_id: int | None = None
         resume_key: str | None = None
 
@@ -210,7 +246,7 @@ def ingest_mbox(
                 conn.commit()
             run_id = _create_run(conn, source_id, account_id)
 
-        counts = {"seen": 0, "inserted": 0, "skipped": 0, "errors": 0}
+        counts = {"seen": 0, "inserted": 0, "skipped": 0, "replaced": 0, "errors": 0}
         last_key_processed: str | None = resume_key
         past_resume_key = resume_key is None
 
@@ -264,6 +300,15 @@ def ingest_mbox(
                 gmail_labels = record.pop("gmail_labels", [])
 
                 try:
+                    if force:
+                        existing = conn.execute(
+                            "SELECT id FROM messages WHERE account_id = ? AND source_id = ? AND mbox_key = ?",
+                            (record["account_id"], record["source_id"], record["mbox_key"]),
+                        ).fetchone()
+                        if existing:
+                            _delete_message_dependents(conn, existing[0])
+                            counts["replaced"] += 1
+
                     cursor = conn.execute(
                         """
                         INSERT OR IGNORE INTO messages
@@ -365,8 +410,9 @@ def ingest_mbox(
         )
         conn.commit()
 
+        replaced_note = f" ({counts['replaced']} replaced)" if force and counts["replaced"] else ""
         print(
-            f"Ingest complete [{account_key}]: {counts['inserted']} inserted, "
+            f"Ingest complete [{account_key}]: {counts['inserted']} inserted{replaced_note}, "
             f"{counts['skipped']} skipped, {counts['errors']} errors"
         )
         return counts
