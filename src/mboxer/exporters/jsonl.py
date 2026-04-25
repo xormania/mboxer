@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..security.policy import is_exportable, metadata_only, needs_scrub, resolve_export_profile
+from ..security.scrub import scrub_text
+
 
 def export_jsonl(
     conn: sqlite3.Connection,
@@ -16,9 +19,13 @@ def export_jsonl(
     account_key: str = "default",
     account_display_name: str | None = None,
     account_email_address: str | None = None,
+    export_profile: str | None = None,
 ) -> dict[str, Any]:
     include_classification = config.get("exports", {}).get("jsonl", {}).get("include_classification", True)
-    security_profile = (config.get("security") or {}).get("default_export_profile")
+    security = config.get("security") or {}
+    config_default = security.get("default_export_profile", "raw")
+    scrub_enabled = security.get("scrub_enabled", True)
+    security_profile = security.get("default_export_profile")
 
     if account_id is not None:
         rows = conn.execute(
@@ -80,6 +87,7 @@ def export_jsonl(
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     written = 0
+    any_scrubbed = False
     thread_keys: set[str] = set()
     date_min: str | None = None
     date_max: str | None = None
@@ -88,6 +96,13 @@ def export_jsonl(
     with out_path.open("w", encoding="utf-8") as f:
         for row in rows:
             record = dict(zip(cols, row))
+
+            # Resolve export profile for this record
+            per_record_profile = (classifications.get(record["id"]) or {}).get("export_profile")
+            effective = export_profile or resolve_export_profile(per_record_profile, config_default)
+            if not is_exportable(effective):
+                continue
+
             record["account_key"] = account_key
             try:
                 record["recipients"] = json.loads(record.pop("recipients_json") or "[]")
@@ -95,8 +110,21 @@ def export_jsonl(
             except Exception:
                 record["recipients"] = []
                 record["cc"] = []
+
             if include_classification and record["id"] in classifications:
                 record["classification"] = classifications[record["id"]]
+
+            # Apply scrubbing or metadata-only
+            if scrub_enabled and needs_scrub(effective):
+                original = record.get("body_text") or ""
+                scrubbed = scrub_text(original, config)
+                if scrubbed != original:
+                    any_scrubbed = True
+                record["body_text"] = scrubbed
+            elif metadata_only(effective):
+                record["body_text"] = None
+                record["body_word_count"] = None
+
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
             written += 1
 
@@ -126,8 +154,9 @@ def export_jsonl(
         date_max=date_max,
         word_count=word_count,
         byte_count=byte_count,
-        export_profile=None,
+        export_profile=export_profile,
         security_profile=security_profile,
+        contains_scrubbed_content=any_scrubbed,
         created_at=now,
     )
     manifest_path = write_jsonl_manifest(out_path, manifest_rows)
@@ -135,4 +164,5 @@ def export_jsonl(
     return {
         "messages_written": written,
         "manifest_path": str(manifest_path),
+        "contains_scrubbed_content": any_scrubbed,
     }

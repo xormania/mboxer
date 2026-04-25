@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 import textwrap
 from datetime import datetime, timezone
@@ -9,6 +8,8 @@ from typing import Any
 
 from ..limits import NotebookLMLimits
 from ..naming import category_to_directory, normalize_category_path, source_pack_filename
+from ..security.policy import is_exportable, metadata_only, needs_scrub, resolve_export_profile
+from ..security.scrub import scrub_text
 
 
 def _date_band(date_utc: str | None) -> str:
@@ -140,6 +141,41 @@ def _fetch_unclassified_messages(
     ]
 
 
+def _prepare_records_for_export(
+    records: list[dict[str, Any]],
+    config: dict[str, Any],
+    override_profile: str | None,
+) -> list[dict[str, Any]]:
+    """Apply export-profile filtering and scrubbing to every record.
+
+    Returns only exportable records, each annotated with '_was_scrubbed'.
+    When override_profile is set it applies to all records regardless of
+    their per-record export_profile.
+    """
+    security = config.get("security") or {}
+    config_default = security.get("default_export_profile", "raw")
+    scrub_enabled = security.get("scrub_enabled", True)
+    result: list[dict[str, Any]] = []
+    for rec in records:
+        effective = override_profile or resolve_export_profile(
+            rec.get("export_profile"), config_default
+        )
+        if not is_exportable(effective):
+            continue
+        rec = dict(rec)
+        was_scrubbed = False
+        if scrub_enabled and needs_scrub(effective):
+            original = rec.get("body_text") or ""
+            scrubbed = scrub_text(original, config)
+            was_scrubbed = scrubbed != original
+            rec["body_text"] = scrubbed
+        elif metadata_only(effective):
+            rec["body_text"] = None
+        rec["_was_scrubbed"] = was_scrubbed
+        result.append(rec)
+    return result
+
+
 def _group_by_category_and_band(
     records: list[dict[str, Any]],
 ) -> dict[tuple[str, str], list[dict[str, Any]]]:
@@ -181,6 +217,7 @@ class _SourceWriter:
         self._current_thread_keys: set[str] = set()
         self._current_date_min: str | None = None
         self._current_date_max: str | None = None
+        self._current_has_scrubbed: bool = False
 
     def _flush(self) -> None:
         if not self._active:
@@ -195,8 +232,7 @@ class _SourceWriter:
             self.category_path, self.date_band,
             self.sequence, self.current_msgs, self.db_path,
         )
-        content = header + "\n".join(self._buf)
-        fpath.write_text(content, encoding="utf-8")
+        fpath.write_text(header + "\n".join(self._buf), encoding="utf-8")
         self.file_stats.append({
             "path": fpath,
             "category_path": self.category_path,
@@ -207,6 +243,7 @@ class _SourceWriter:
             "byte_count": fpath.stat().st_size,
             "date_min": self._current_date_min,
             "date_max": self._current_date_max,
+            "contains_scrubbed_content": self._current_has_scrubbed,
         })
         self.sequence += 1
         self._buf = []
@@ -217,6 +254,7 @@ class _SourceWriter:
         self._current_thread_keys = set()
         self._current_date_min = None
         self._current_date_max = None
+        self._current_has_scrubbed = False
 
     def add_message(self, record: dict[str, Any]) -> None:
         chunk = _render_message_md(record)
@@ -239,6 +277,8 @@ class _SourceWriter:
         self.current_bytes += chunk_bytes
         self.current_msgs += 1
 
+        if record.get("_was_scrubbed"):
+            self._current_has_scrubbed = True
         if record.get("thread_key"):
             self._current_thread_keys.add(record["thread_key"])
         date = record.get("date_utc")
@@ -249,7 +289,6 @@ class _SourceWriter:
                 self._current_date_max = date
 
     def finish(self) -> list[dict[str, Any]]:
-        """Flush any remaining buffer and return per-file stats."""
         if self._active:
             self._flush()
         return self.file_stats
@@ -274,6 +313,7 @@ def export_notebooklm(
     if include_unclassified:
         records += _fetch_unclassified_messages(conn, account_id)
 
+    records = _prepare_records_for_export(records, config, export_profile)
     groups = _group_by_category_and_band(records)
     effective_budget = limits.effective_source_budget
     security_profile = (config.get("security") or {}).get("default_export_profile")
@@ -329,7 +369,6 @@ def export_notebooklm(
     )
     conn.commit()
 
-    # Write manifests
     from .manifest import build_notebooklm_manifest_rows, write_notebooklm_manifest
     manifest_rows = build_notebooklm_manifest_rows(
         all_file_stats,

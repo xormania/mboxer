@@ -21,7 +21,7 @@ def is_exportable(profile: str) -> bool:
 
 
 def needs_scrub(profile: str) -> bool:
-    return profile == "scrubbed"
+    return profile in ("scrubbed", "reviewed")
 
 
 def metadata_only(profile: str) -> bool:

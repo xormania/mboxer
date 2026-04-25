@@ -56,7 +56,7 @@ def build_notebooklm_manifest_rows(
             "byte_count": stat.get("byte_count", 0),
             "export_profile": export_profile or "",
             "security_profile": security_profile or "",
-            "contains_scrubbed_content": False,
+            "contains_scrubbed_content": bool(stat.get("contains_scrubbed_content", False)),
             "created_at": created_at,
         })
     return rows
@@ -76,7 +76,8 @@ def build_jsonl_manifest_rows(
     byte_count: int,
     export_profile: str | None,
     security_profile: str | None,
-    created_at: str,
+    contains_scrubbed_content: bool = False,
+    created_at: str = "",
 ) -> list[dict[str, Any]]:
     return [{
         "account_key": account_key,
@@ -94,7 +95,7 @@ def build_jsonl_manifest_rows(
         "byte_count": byte_count,
         "export_profile": export_profile or "",
         "security_profile": security_profile or "",
-        "contains_scrubbed_content": False,
+        "contains_scrubbed_content": contains_scrubbed_content,
         "created_at": created_at,
     }]
 
