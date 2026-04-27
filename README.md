@@ -1,4 +1,6 @@
-# mboxer
+# mboxer - not usuable yet
+
+Almost done, just need to hook in local AI 
 
 Create **NotebookLM-ready Markdown source packs** from **Gmail MBOX exports**, with local SQLite, JSONL, and CSV outputs for search, RAG, archive review, and LLM workflows.
 
